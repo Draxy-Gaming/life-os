@@ -36,7 +36,7 @@ const HEADER_GRADIENTS = {
 };
 
 export default function PrayerPage() {
-  const { userSettings, dailyPrayers, updatePrayer, tasbihEntries, incrementTasbih, resetTasbih, quranLogs, addQuranLog } = useAppStore();
+  const { userSettings, dailyPrayers, updatePrayer, tasbihEntries, incrementTasbih, resetTasbih, quranLogs, addQuranLog, ensureTodayPrayers } = useAppStore();
   const { times, currentPrayer, nextPrayer, loading } = usePrayerTimes(userSettings.latitude, userSettings.longitude);
   const [timeOfDay, setTimeOfDay] = useState(getTimeOfDay());
   const [quranPages, setQuranPages] = useState("");
@@ -47,12 +47,24 @@ export default function PrayerPage() {
   const todayPrayers = dailyPrayers[today] || {};
 
   useEffect(() => {
+    // Ensure today's prayers exist in the store
+    ensureTodayPrayers();
+  }, [ensureTodayPrayers]);
+
+  useEffect(() => {
     const interval = setInterval(() => setTimeOfDay(getTimeOfDay()), 60000);
     return () => clearInterval(interval);
   }, []);
 
   const togglePrayer = (prayer: PrayerKey) => {
-    updatePrayer(today, { [prayer]: !todayPrayers[prayer] });
+    const isCurrentlyComplete = !!todayPrayers[prayer];
+    const now = new Date().toISOString();
+    const completedAtKey = `${prayer}CompletedAt` as keyof typeof todayPrayers;
+    
+    updatePrayer(today, {
+      [prayer]: !isCurrentlyComplete,
+      [completedAtKey]: isCurrentlyComplete ? undefined : now,
+    });
   };
 
   const toggleMasjid = (prayer: PrayerKey) => {

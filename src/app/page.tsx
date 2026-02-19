@@ -19,12 +19,12 @@ const useHydrated = () => {
 
 export default function RootPage() {
   const router = useRouter();
-  const { isOnboarded } = useAppStore();
-  const { user, loading } = useAuth();
+  const { isOnboarded, isLoading } = useAppStore();
+  const { user, loading: authLoading } = useAuth();
   const hydrated = useHydrated();
 
   useEffect(() => {
-    if (!hydrated || loading) return;
+    if (!hydrated || authLoading || isLoading) return;
     
     if (user) {
       if (isOnboarded) {
@@ -35,9 +35,9 @@ export default function RootPage() {
     } else {
       router.replace("/auth/login");
     }
-  }, [hydrated, loading, user, isOnboarded, router]);
+  }, [hydrated, authLoading, isLoading, user, isOnboarded, router]);
 
-  if (!hydrated || loading) {
+  if (!hydrated || authLoading || isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-violet-950 via-indigo-950 to-slate-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">

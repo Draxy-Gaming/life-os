@@ -107,6 +107,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    // Clear localStorage cache before sign out
+    const currentUser = user;
+    if (currentUser?.id && typeof window !== 'undefined') {
+      localStorage.removeItem(`lifeos_onboarded_${currentUser.id}`);
+    }
+    
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);

@@ -234,14 +234,19 @@ export async function loadUserData(userId: string): Promise<UserData> {
       date: p.date,
       fajr: p.fajr,
       fajrMasjid: p.fajr_masjid,
+      fajrCompletedAt: p.fajr_completed_at || undefined,
       dhuhr: p.dhuhr,
       dhuhrMasjid: p.dhuhr_masjid,
+      dhuhrCompletedAt: p.dhuhr_completed_at || undefined,
       asr: p.asr,
       asrMasjid: p.asr_masjid,
+      asrCompletedAt: p.asr_completed_at || undefined,
       maghrib: p.maghrib,
       maghribMasjid: p.maghrib_masjid,
+      maghribCompletedAt: p.maghrib_completed_at || undefined,
       isha: p.isha,
       ishaMasjid: p.isha_masjid,
+      ishaCompletedAt: p.isha_completed_at || undefined,
       qadaCount: p.qada_count,
     };
   });
@@ -354,6 +359,7 @@ export async function saveUserSettings(userId: string, settings: UserSettings) {
 
   if (error) {
     console.error("Error saving user settings:", error);
+    throw new Error(`Failed to save user settings: ${error.message}`);
   } else {
     console.log("saveUserSettings: Success!");
   }
@@ -412,14 +418,19 @@ export async function saveDailyPrayers(userId: string, date: string, prayers: Da
         date,
         fajr: prayers.fajr,
         fajr_masjid: prayers.fajrMasjid,
+        fajr_completed_at: prayers.fajrCompletedAt || null,
         dhuhr: prayers.dhuhr,
         dhuhr_masjid: prayers.dhuhrMasjid,
+        dhuhr_completed_at: prayers.dhuhrCompletedAt || null,
         asr: prayers.asr,
         asr_masjid: prayers.asrMasjid,
+        asr_completed_at: prayers.asrCompletedAt || null,
         maghrib: prayers.maghrib,
         maghrib_masjid: prayers.maghribMasjid,
+        maghrib_completed_at: prayers.maghribCompletedAt || null,
         isha: prayers.isha,
         isha_masjid: prayers.ishaMasjid,
+        isha_completed_at: prayers.ishaCompletedAt || null,
         qada_count: prayers.qadaCount,
       },
       { onConflict: "user_id,date" }

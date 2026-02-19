@@ -40,6 +40,8 @@ export default function OnboardingPage() {
   const [userCountry, setUserCountry] = useState("UK");
   const [mainGoal, setMainGoal] = useState("");
   const [sleepTarget, setSleepTarget] = useState(8);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Check authentication
   useEffect(() => {
@@ -64,18 +66,28 @@ export default function OnboardingPage() {
     }
   };
 
-  const handleComplete = () => {
-    setUserSettings({
-      name,
-      city: userCity,
-      country: userCountry,
-      latitude,
-      longitude,
-      mainGoal,
-      sleepTarget,
-    });
-    completeOnboarding();
-    router.push("/dashboard");
+  const handleComplete = async () => {
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      // Wait for settings to be saved to database before proceeding
+      await setUserSettings({
+        name,
+        city: userCity,
+        country: userCountry,
+        latitude,
+        longitude,
+        mainGoal,
+        sleepTarget,
+      });
+      completeOnboarding();
+      router.push("/dashboard");
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to save your settings. Please try again.";
+      console.error("Error completing onboarding:", err);
+      setError(errorMessage);
+      setIsSubmitting(false);
+    }
   };
 
   const handleLocationDetect = () => {
@@ -122,6 +134,17 @@ export default function OnboardingPage() {
             />
           ))}
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 rounded-lg bg-red-500/20 border border-red-500/50 text-red-100 text-sm"
+          >
+            {error}
+          </motion.div>
+        )}
 
         <AnimatePresence mode="wait">
           <motion.div
@@ -315,13 +338,22 @@ export default function OnboardingPage() {
               )}
               <Button
                 onClick={handleNext}
-                disabled={!canProceed()}
+                disabled={!canProceed() || isSubmitting}
                 className="flex-1 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:opacity-90 disabled:opacity-50"
               >
                 {step === steps.length ? (
                   <>
-                    <Check className="w-4 h-4 mr-2" />
-                    Get Started
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4 mr-2" />
+                        Get Started
+                      </>
+                    )}
                   </>
                 ) : (
                   <>

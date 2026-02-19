@@ -26,14 +26,19 @@ export interface DailyPrayers {
   date: string;
   fajr: boolean;
   fajrMasjid: boolean;
+  fajrCompletedAt?: string; // ISO timestamp
   dhuhr: boolean;
   dhuhrMasjid: boolean;
+  dhuhrCompletedAt?: string;
   asr: boolean;
   asrMasjid: boolean;
+  asrCompletedAt?: string;
   maghrib: boolean;
   maghribMasjid: boolean;
+  maghribCompletedAt?: string;
   isha: boolean;
   ishaMasjid: boolean;
+  ishaCompletedAt?: string;
   qadaCount: number;
 }
 
@@ -150,6 +155,7 @@ export interface TasbihEntry {
 
 // Quran Log
 export interface QuranLog {
+  id?: string;
   date: string;
   pagesRead: number;
   surah?: string;

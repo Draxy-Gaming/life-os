@@ -30,7 +30,7 @@ interface AppState {
   // Onboarding
   isOnboarded: boolean;
   userSettings: UserSettings;
-  setUserSettings: (settings: Partial<UserSettings>) => void;
+  setUserSettings: (settings: Partial<UserSettings>) => Promise<void>;
   completeOnboarding: () => void;
 
   // Tasks
@@ -53,6 +53,8 @@ interface AppState {
   // Prayers
   dailyPrayers: Record<string, DailyPrayers>;
   updatePrayer: (date: string, updates: Partial<DailyPrayers>) => void;
+  getTodayPrayers: () => DailyPrayers;
+  ensureTodayPrayers: () => void;
 
   // Tasbih
   tasbihEntries: TasbihEntry[];
@@ -143,9 +145,33 @@ export const useAppStore = create<AppState>()((set, get) => ({
     try {
       const data = await loadUserData(userId);
       console.log("store.loadData: Received data", data.userSettings);
-      // Determine if user is onboarded based on whether they have completed initial setup
-      const isOnboarded = !!(data.userSettings.name && data.userSettings.mainGoal);
-      console.log("store.loadData: isOnboarded =", isOnboarded, "name:", data.userSettings.name, "mainGoal:", data.userSettings.mainGoal);
+      
+      // Check localStorage first for cached onboarding status
+      const cachedOnboarded = typeof window !== 'undefined' && localStorage.getItem(`lifeos_onboarded_${userId}`);
+      // Determine if user is onboarded based on cached value or database content
+      const isOnboarded = !!cachedOnboarded || !!(data.userSettings.name && data.userSettings.mainGoal);
+      
+      console.log("store.loadData: isOnboarded =", isOnboarded, "cached:", !!cachedOnboarded, "name:", data.userSettings.name, "mainGoal:", data.userSettings.mainGoal);
+      
+      // Ensure today's prayers exist in dailyPrayers
+      const today = new Date().toDateString();
+      if (!data.dailyPrayers[today]) {
+        data.dailyPrayers[today] = {
+          date: today,
+          fajr: false,
+          fajrMasjid: false,
+          dhuhr: false,
+          dhuhrMasjid: false,
+          asr: false,
+          asrMasjid: false,
+          maghrib: false,
+          maghribMasjid: false,
+          isha: false,
+          ishaMasjid: false,
+          qadaCount: 0,
+        };
+      }
+      
       set({
         userId,
         userSettings: data.userSettings,
@@ -202,7 +228,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   // Onboarding
   isOnboarded: false,
   userSettings: DEFAULT_USER_SETTINGS,
-  setUserSettings: (settings) => {
+  setUserSettings: async (settings) => {
     const state = get();
     const newSettings = { ...state.userSettings, ...settings };
     // If name and mainGoal are set, consider user onboarded
@@ -215,12 +241,22 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const currentUserId = get().userId;
     if (currentUserId) {
       console.log("Syncing user settings to database...", newSettings);
-      get().syncData();
+      await get().syncData();
+      // Cache onboarding completion in localStorage to persist across page refreshes
+      if (shouldBeOnboarded) {
+        typeof window !== 'undefined' && localStorage.setItem(`lifeos_onboarded_${currentUserId}`, 'true');
+      }
     } else {
       console.warn("Cannot sync: userId is not set yet!");
     }
   },
-  completeOnboarding: () => set({ isOnboarded: true }),
+  completeOnboarding: () => {
+    const { userId } = get();
+    if (userId && typeof window !== 'undefined') {
+      localStorage.setItem(`lifeos_onboarded_${userId}`, 'true');
+    }
+    set({ isOnboarded: true });
+  },
 
   // Tasks
   tasks: [],
@@ -292,6 +328,49 @@ export const useAppStore = create<AppState>()((set, get) => ({
       },
     }));
     get().syncData();
+  },
+  getTodayPrayers: () => {
+    const today = new Date().toDateString();
+    const { dailyPrayers } = get();
+    return dailyPrayers[today] || {
+      date: today,
+      fajr: false,
+      fajrMasjid: false,
+      dhuhr: false,
+      dhuhrMasjid: false,
+      asr: false,
+      asrMasjid: false,
+      maghrib: false,
+      maghribMasjid: false,
+      isha: false,
+      ishaMasjid: false,
+      qadaCount: 0,
+    };
+  },
+  ensureTodayPrayers: () => {
+    const today = new Date().toDateString();
+    const { dailyPrayers } = get();
+    if (!dailyPrayers[today]) {
+      set((state) => ({
+        dailyPrayers: {
+          ...state.dailyPrayers,
+          [today]: {
+            date: today,
+            fajr: false,
+            fajrMasjid: false,
+            dhuhr: false,
+            dhuhrMasjid: false,
+            asr: false,
+            asrMasjid: false,
+            maghrib: false,
+            maghribMasjid: false,
+            isha: false,
+            ishaMasjid: false,
+            qadaCount: 0,
+          },
+        },
+      }));
+    }
   },
 
   // Tasbih
