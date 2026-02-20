@@ -36,6 +36,7 @@ export interface UserData {
   habits: Habit[];
   sleepEntries: SleepEntry[];
   dailyPrayers: Record<string, DailyPrayers>;
+  dailyHabits?: Record<string, import("./types").DailyHabits>;
   tasbihEntries: TasbihEntry[];
   quranLogs: QuranLog[];
   exams: Exam[];
@@ -113,6 +114,7 @@ export async function loadUserData(userId: string): Promise<UserData> {
     tasksResult,
     habitsResult,
     prayersResult,
+    habitCompletionsResult,
     tasbihResult,
     quranResult,
     examsResult,
@@ -135,10 +137,16 @@ export async function loadUserData(userId: string): Promise<UserData> {
       .eq("user_id", userId)
       .order("created_at", { ascending: true }),
 
-    // Daily Prayers
+    // Daily Prayers - with explicit column selection
     supabase
       .from("daily_prayers")
-      .select("*")
+      .select("id, user_id, date, fajr, fajr_masjid, fajr_completed_at, dhuhr, dhuhr_masjid, dhuhr_completed_at, asr, asr_masjid, asr_completed_at, maghrib, maghrib_masjid, maghrib_completed_at, isha, isha_masjid, isha_completed_at, qada_count")
+      .eq("user_id", userId),
+
+    // Daily Habit Completions
+    supabase
+      .from("daily_habit_completions")
+      .select("id, user_id, habit_id, date, completed_at")
       .eq("user_id", userId),
 
     // Tasbih Entries
@@ -189,6 +197,17 @@ export async function loadUserData(userId: string): Promise<UserData> {
       .order("date", { ascending: false }),
   ]);
 
+  // Log any errors
+  if (prayersResult.error) {
+    console.error("loadUserData: Error fetching daily_prayers:", prayersResult.error);
+  }
+  console.log("loadUserData: Fetched prayers result:", {
+    hasData: !!prayersResult.data,
+    count: prayersResult.data?.length || 0,
+    firstRow: prayersResult.data?.[0],
+    error: prayersResult.error,
+  });
+
   // Transform data to app format
   const userSettings: UserSettings = settingsResult.data
     ? {
@@ -227,11 +246,45 @@ export async function loadUserData(userId: string): Promise<UserData> {
       }))
     : DEFAULT_HABITS;
 
+  // Daily Habit Completions - transform into record keyed by date string
+  const dailyHabits: Record<string, import("./types").DailyHabits> = {};
+  if (typeof habitCompletionsResult !== 'undefined' && habitCompletionsResult.data) {
+    (habitCompletionsResult.data || []).forEach((c: any) => {
+      const dbDate = c.date; // YYYY-MM-DD
+      const dateObj = new Date(dbDate + "T00:00:00Z");
+      const dateKey = dateObj.toDateString();
+      if (!dailyHabits[dateKey]) {
+        dailyHabits[dateKey] = { date: dbDate, completions: {} };
+      }
+
+      // Find habit name from habitsResult
+      const habitRow = (habitsResult.data || []).find((h: any) => h.id === c.habit_id);
+      dailyHabits[dateKey].completions[c.habit_id] = {
+        habitId: c.habit_id,
+        habitName: habitRow?.name || "",
+        completedAt: c.completed_at,
+      };
+    });
+  }
+
   // Daily Prayers - transform to record
   const dailyPrayers: Record<string, DailyPrayers> = {};
   (prayersResult.data || []).forEach((p) => {
-    dailyPrayers[p.date] = {
-      date: p.date,
+    // The database date column is a DATE type, which comes back as YYYY-MM-DD string
+    // We need to convert it to match new Date().toDateString() format (e.g., "Thu Feb 20 2026")
+    const dbDate = p.date; // This is YYYY-MM-DD format from database
+    const dateObj = new Date(dbDate + "T00:00:00Z"); // Parse as UTC to avoid timezone issues
+    const dateKey = dateObj.toDateString(); // Convert to "Thu Feb 20 2026" format
+    
+    console.log("loadUserData: Processing prayer - DB date:", dbDate, "-> dateKey:", dateKey, "prayer data:", {
+      fajr: p.fajr,
+      fajr_completed_at: p.fajr_completed_at,
+      dhuhr: p.dhuhr,
+      dhuhr_completed_at: p.dhuhr_completed_at,
+    });
+    
+    dailyPrayers[dateKey] = {
+      date: dbDate, // Keep the original YYYY-MM-DD format in the data
       fajr: p.fajr,
       fajrMasjid: p.fajr_masjid,
       fajrCompletedAt: p.fajr_completed_at || undefined,
@@ -250,6 +303,7 @@ export async function loadUserData(userId: string): Promise<UserData> {
       qadaCount: p.qada_count,
     };
   });
+  console.log("loadUserData: Loaded dailyPrayers with keys:", Object.keys(dailyPrayers), "data:", dailyPrayers);
 
   // Tasbih - if none exist, use defaults
   const tasbihEntries: TasbihEntry[] = (tasbihResult.data || []).length > 0
@@ -325,6 +379,7 @@ export async function loadUserData(userId: string): Promise<UserData> {
     habits,
     sleepEntries,
     dailyPrayers,
+    dailyHabits,
     tasbihEntries,
     quranLogs,
     exams,
@@ -408,14 +463,57 @@ export async function saveHabits(userId: string, habits: Habit[]) {
   if (error) console.error("Error saving habits:", error);
 }
 
+// Save daily habit completions
+export async function saveDailyHabits(userId: string, dailyHabits: Record<string, import("./types").DailyHabits>) {
+  // Delete existing completions for user
+  await supabase.from("daily_habit_completions").delete().eq("user_id", userId);
+
+  const rows: any[] = [];
+  for (const [dateKey, day] of Object.entries(dailyHabits || {})) {
+    // day.date may be YYYY-MM-DD or a different format; convert to YYYY-MM-DD
+    let dbDate = day.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dbDate)) {
+      dbDate = new Date(day.date).toISOString().split("T")[0];
+    }
+
+    for (const [habitId, completion] of Object.entries(day.completions || {})) {
+      rows.push({
+        user_id: userId,
+        habit_id: habitId,
+        date: dbDate,
+        completed_at: completion.completedAt,
+      });
+    }
+  }
+
+  if (rows.length === 0) return;
+
+  const { error } = await supabase.from("daily_habit_completions").insert(rows);
+  if (error) console.error("Error saving daily habit completions:", error);
+}
+
 // Save daily prayers for a specific date
 export async function saveDailyPrayers(userId: string, date: string, prayers: DailyPrayers) {
+  // Convert date from "Thu Feb 20 2026" format to "2026-02-20" format for database
+  let dbDate: string;
+  
+  // Check if date is already in YYYY-MM-DD format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    dbDate = date;
+  } else {
+    // Convert from new Date().toDateString() format
+    const dateObj = new Date(date);
+    dbDate = dateObj.toISOString().split("T")[0]; // Get YYYY-MM-DD part
+  }
+  
+  console.log("saveDailyPrayers: Saving for date key:", date, "-> DB date:", dbDate);
+  
   const { error } = await supabase
     .from("daily_prayers")
     .upsert(
       {
         user_id: userId,
-        date,
+        date: dbDate,
         fajr: prayers.fajr,
         fajr_masjid: prayers.fajrMasjid,
         fajr_completed_at: prayers.fajrCompletedAt || null,
@@ -436,7 +534,11 @@ export async function saveDailyPrayers(userId: string, date: string, prayers: Da
       { onConflict: "user_id,date" }
     );
 
-  if (error) console.error("Error saving daily prayers:", error);
+  if (error) {
+    console.error("Error saving daily prayers:", error);
+  } else {
+    console.log("✅ saveDailyPrayers: Successfully saved for date:", dbDate);
+  }
 }
 
 // Save tasbih entries
@@ -596,6 +698,8 @@ export async function saveAllUserData(userId: string, data: UserData) {
     saveExercises(userId, data.exercises),
     saveWorkoutLogs(userId, data.workoutLogs),
     saveSleepEntries(userId, data.sleepEntries),
+    // Save daily habit completions
+    saveDailyHabits(userId, (data as any).dailyHabits || {}),
   ]);
 
   // Save daily prayers one by one (they're a record)

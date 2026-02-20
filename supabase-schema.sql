@@ -45,6 +45,16 @@ create table habits (
   created_at timestamptz default now()
 );
 
+-- Daily Habits Completion Table
+create table daily_habit_completions (
+  id uuid default uuid_generate_v4() primary key,
+  user_id uuid references auth.users(id) on delete cascade not null,
+  habit_id uuid references habits(id) on delete cascade not null,
+  date date not null,
+  completed_at timestamptz default now(),
+  unique(user_id, habit_id, date)
+);
+
 -- Daily Prayers Table
 create table daily_prayers (
   id uuid default uuid_generate_v4() primary key,

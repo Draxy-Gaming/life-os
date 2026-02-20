@@ -6,6 +6,10 @@ import { AuthProvider } from "@/components/AuthProvider";
 export const metadata: Metadata = {
   title: "LifeOS - Personal Operating System",
   description: "Your complete personal productivity system for students and achievers",
+  icons: {
+    icon: '/favicon.svg',
+    apple: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({

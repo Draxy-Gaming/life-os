@@ -67,6 +67,18 @@ export interface Habit {
   completedToday: boolean;
 }
 
+// Daily Habits - Track habit completion by date
+export interface DailyHabitCompletion {
+  habitId: string;
+  habitName: string;
+  completedAt: string; // ISO timestamp
+}
+
+export interface DailyHabits {
+  date: string; // YYYY-MM-DD from DB, or "Day Month Date Year" format for keys
+  completions: Record<string, DailyHabitCompletion>; // habit ID -> completion data
+}
+
 // Sleep Types
 export interface SleepEntry {
   date: string;

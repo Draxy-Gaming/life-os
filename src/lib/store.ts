@@ -12,6 +12,7 @@ import type {
   WorkoutLog,
   WorkoutSchedule,
   DailyPrayers,
+  DailyHabits,
   TasbihEntry,
   QuranLog,
   DailyScore,
@@ -41,10 +42,12 @@ interface AppState {
 
   // Habits
   habits: Habit[];
+  dailyHabits: Record<string, DailyHabits>;
   addHabit: (habit: Habit) => void;
   updateHabit: (id: string, updates: Partial<Habit>) => void;
   deleteHabit: (id: string) => void;
   completeHabit: (id: string) => void;
+  toggleHabitCompletion: (habitId: string, date: string) => void;
 
   // Sleep
   sleepEntries: SleepEntry[];
@@ -53,8 +56,6 @@ interface AppState {
   // Prayers
   dailyPrayers: Record<string, DailyPrayers>;
   updatePrayer: (date: string, updates: Partial<DailyPrayers>) => void;
-  getTodayPrayers: () => DailyPrayers;
-  ensureTodayPrayers: () => void;
 
   // Tasbih
   tasbihEntries: TasbihEntry[];
@@ -145,6 +146,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     try {
       const data = await loadUserData(userId);
       console.log("store.loadData: Received data", data.userSettings);
+      console.log("store.loadData: Received dailyPrayers =", data.dailyPrayers);
       
       // Check localStorage first for cached onboarding status
       const cachedOnboarded = typeof window !== 'undefined' && localStorage.getItem(`lifeos_onboarded_${userId}`);
@@ -156,6 +158,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       // Ensure today's prayers exist in dailyPrayers
       const today = new Date().toDateString();
       if (!data.dailyPrayers[today]) {
+        console.log("store.loadData: Creating new prayers for today:", today);
         data.dailyPrayers[today] = {
           date: today,
           fajr: false,
@@ -170,15 +173,31 @@ export const useAppStore = create<AppState>()((set, get) => ({
           ishaMasjid: false,
           qadaCount: 0,
         };
+      } else {
+        console.log("store.loadData: Found existing prayers for today:", today, data.dailyPrayers[today]);
       }
-      
+
+      // Ensure dailyHabits structure
+      const todayKey = new Date().toDateString();
+      const processedDailyHabits = data.dailyHabits || {};
+      if (!processedDailyHabits[todayKey]) {
+        processedDailyHabits[todayKey] = { date: new Date().toISOString().split("T")[0], completions: {} };
+      }
+
+      // Map habits and set completedToday based on dailyHabits for today
+      const habitsWithCompletion = data.habits.map((h) => {
+        const wasCompleted = !!(processedDailyHabits[todayKey] && processedDailyHabits[todayKey].completions[h.id]);
+        return { ...h, completedToday: wasCompleted, lastCompletedAt: wasCompleted ? todayKey : h.lastCompletedAt };
+      });
+
       set({
         userId,
         userSettings: data.userSettings,
         tasks: data.tasks,
-        habits: data.habits,
+        habits: habitsWithCompletion,
         sleepEntries: data.sleepEntries,
         dailyPrayers: data.dailyPrayers,
+        dailyHabits: processedDailyHabits,
         tasbihEntries: data.tasbihEntries,
         quranLogs: data.quranLogs,
         exams: data.exams,
@@ -197,7 +216,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   syncData: async () => {
-    const { userId, userSettings, tasks, habits, sleepEntries, dailyPrayers, tasbihEntries, quranLogs, exams, studySessions, exercises, workoutLogs, workoutSchedule } = get();
+    const { userId, userSettings, tasks, habits, sleepEntries, dailyPrayers, dailyHabits, tasbihEntries, quranLogs, exams, studySessions, exercises, workoutLogs, workoutSchedule } = get();
     if (!userId) {
       console.warn("syncData: userId is null, skipping sync");
       return;
@@ -211,6 +230,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
         habits,
         sleepEntries,
         dailyPrayers,
+        dailyHabits,
         tasbihEntries,
         quranLogs,
         exams,
@@ -277,6 +297,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   // Habits
   habits: DEFAULT_HABITS,
+  dailyHabits: {},
   addHabit: (habit) => {
     set((state) => ({ habits: [...state.habits, habit] }));
     get().syncData();
@@ -292,11 +313,12 @@ export const useAppStore = create<AppState>()((set, get) => ({
     get().syncData();
   },
   completeHabit: (id) => {
-    const today = new Date().toDateString();
-    set((state) => ({
-      habits: state.habits.map((h) => {
+    const todayKey = new Date().toDateString();
+    const dbDate = new Date().toISOString().split("T")[0];
+    set((state) => {
+      const habits = state.habits.map((h) => {
         if (h.id !== id) return h;
-        const wasCompletedToday = h.lastCompletedAt === today;
+        const wasCompletedToday = h.lastCompletedAt === todayKey || !!(state.dailyHabits[todayKey] && state.dailyHabits[todayKey].completions[id]);
         if (wasCompletedToday) {
           return { ...h, completedToday: false, streakCount: Math.max(0, h.streakCount - 1), lastCompletedAt: null };
         }
@@ -304,10 +326,43 @@ export const useAppStore = create<AppState>()((set, get) => ({
           ...h,
           completedToday: true,
           streakCount: h.streakCount + 1,
-          lastCompletedAt: today,
+          lastCompletedAt: todayKey,
         };
-      }),
-    }));
+      });
+
+      // Update dailyHabits record
+      const existingDay = state.dailyHabits[todayKey] || { date: dbDate, completions: {} };
+      const already = !!existingDay.completions[id];
+      const completions = { ...existingDay.completions };
+      if (already) {
+        delete completions[id];
+      } else {
+        const habit = state.habits.find((h) => h.id === id);
+        completions[id] = { habitId: id, habitName: habit?.name || "", completedAt: new Date().toISOString() };
+      }
+
+      return {
+        habits,
+        dailyHabits: { ...state.dailyHabits, [todayKey]: { date: dbDate, completions } },
+      };
+    });
+    get().syncData();
+  },
+  toggleHabitCompletion: (habitId, date) => {
+    // Convenience wrapper to toggle completion for a given habit and date
+    const todayKey = date || new Date().toDateString();
+    const dbDate = new Date(todayKey).toISOString().split("T")[0];
+    set((state) => {
+      const existingDay = state.dailyHabits[todayKey] || { date: dbDate, completions: {} };
+      const completions = { ...existingDay.completions };
+      if (completions[habitId]) {
+        delete completions[habitId];
+      } else {
+        const habit = state.habits.find((h) => h.id === habitId);
+        completions[habitId] = { habitId, habitName: habit?.name || "", completedAt: new Date().toISOString() };
+      }
+      return { dailyHabits: { ...state.dailyHabits, [todayKey]: { date: dbDate, completions } } };
+    });
     get().syncData();
   },
 
@@ -321,56 +376,18 @@ export const useAppStore = create<AppState>()((set, get) => ({
   // Prayers
   dailyPrayers: {},
   updatePrayer: (date, updates) => {
-    set((state) => ({
-      dailyPrayers: {
-        ...state.dailyPrayers,
-        [date]: { ...state.dailyPrayers[date], ...updates, date },
-      },
-    }));
-    get().syncData();
-  },
-  getTodayPrayers: () => {
-    const today = new Date().toDateString();
-    const { dailyPrayers } = get();
-    return dailyPrayers[today] || {
-      date: today,
-      fajr: false,
-      fajrMasjid: false,
-      dhuhr: false,
-      dhuhrMasjid: false,
-      asr: false,
-      asrMasjid: false,
-      maghrib: false,
-      maghribMasjid: false,
-      isha: false,
-      ishaMasjid: false,
-      qadaCount: 0,
-    };
-  },
-  ensureTodayPrayers: () => {
-    const today = new Date().toDateString();
-    const { dailyPrayers } = get();
-    if (!dailyPrayers[today]) {
-      set((state) => ({
+    set((state) => {
+      const existing = state.dailyPrayers[date] || {};
+      const updated = { ...existing, ...updates, date };
+      console.log(`updatePrayer: Updating prayers for ${date}`, { existing, updates, updated });
+      return {
         dailyPrayers: {
           ...state.dailyPrayers,
-          [today]: {
-            date: today,
-            fajr: false,
-            fajrMasjid: false,
-            dhuhr: false,
-            dhuhrMasjid: false,
-            asr: false,
-            asrMasjid: false,
-            maghrib: false,
-            maghribMasjid: false,
-            isha: false,
-            ishaMasjid: false,
-            qadaCount: 0,
-          },
+          [date]: updated,
         },
-      }));
-    }
+      };
+    });
+    get().syncData();
   },
 
   // Tasbih

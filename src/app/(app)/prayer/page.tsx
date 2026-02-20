@@ -36,7 +36,7 @@ const HEADER_GRADIENTS = {
 };
 
 export default function PrayerPage() {
-  const { userSettings, dailyPrayers, updatePrayer, tasbihEntries, incrementTasbih, resetTasbih, quranLogs, addQuranLog, ensureTodayPrayers } = useAppStore();
+  const { userSettings, dailyPrayers, updatePrayer, tasbihEntries, incrementTasbih, resetTasbih, quranLogs, addQuranLog } = useAppStore();
   const { times, currentPrayer, nextPrayer, loading } = usePrayerTimes(userSettings.latitude, userSettings.longitude);
   const [timeOfDay, setTimeOfDay] = useState(getTimeOfDay());
   const [quranPages, setQuranPages] = useState("");
@@ -44,13 +44,28 @@ export default function PrayerPage() {
   const [activeTasbih, setActiveTasbih] = useState(0);
 
   const today = new Date().toDateString();
-  const todayPrayers = dailyPrayers[today] || {};
-
+  
+  // Get today's prayers from store, defaulting to empty object if not loaded yet
+  const todayPrayers = dailyPrayers[today] || {
+    date: today,
+    fajr: false,
+    fajrMasjid: false,
+    dhuhr: false,
+    dhuhrMasjid: false,
+    asr: false,
+    asrMasjid: false,
+    maghrib: false,
+    maghribMasjid: false,
+    isha: false,
+    ishaMasjid: false,
+    qadaCount: 0,
+  };  
+  // Debug logging
   useEffect(() => {
-    // Ensure today's prayers exist in the store
-    ensureTodayPrayers();
-  }, [ensureTodayPrayers]);
-
+    console.log("🙏 Prayer page - Today's date string:", today);
+    console.log("🙏 Prayer page - dailyPrayers keys:", Object.keys(dailyPrayers));
+    console.log("🙏 Prayer page - Today's prayers:", todayPrayers);
+  }, [today, dailyPrayers, todayPrayers]);
   useEffect(() => {
     const interval = setInterval(() => setTimeOfDay(getTimeOfDay()), 60000);
     return () => clearInterval(interval);
