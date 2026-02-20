@@ -443,24 +443,47 @@ export async function saveTasks(userId: string, tasks: Task[]) {
 }
 
 // Save habits to Supabase
-export async function saveHabits(userId: string, habits: Habit[]) {
-  // Delete existing habits
+export async function saveHabits(userId: string, habits: Habit[]): Promise<Record<string, string>> {
+  // Delete existing habits for this user
   await supabase.from("habits").delete().eq("user_id", userId);
 
-  if (habits.length === 0) return;
+  // If no habits, nothing to insert; return empty map
+  if (habits.length === 0) return {};
 
-  const { error } = await supabase.from("habits").insert(
-    habits.map((h) => ({
+  // Helper to detect UUID-like strings
+  const isUuid = (s: string) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(s);
+
+  // Build insert payloads, assigning dbId for each habit (use existing valid UUID or generate one)
+  const payloads = habits.map((h) => {
+    const dbId = isUuid(h.id) ? h.id : (globalThis.crypto && (globalThis.crypto as any).randomUUID ? (globalThis.crypto as any).randomUUID() : null);
+    return {
+      id: dbId || undefined,
       user_id: userId,
       name: h.name,
       icon: h.icon,
       streak_count: h.streakCount,
       last_completed_at: h.lastCompletedAt || null,
       frozen_streak: h.frozenStreak,
-    }))
-  );
+    } as any;
+  });
 
-  if (error) console.error("Error saving habits:", error);
+  // Insert and return inserted rows
+  const { data, error } = await supabase.from("habits").insert(payloads).select("id,name");
+  if (error) {
+    console.error("Error saving habits:", error);
+    return {};
+  }
+
+  // Build mapping from client id (original habits array) to db id
+  const mapping: Record<string, string> = {};
+  for (let i = 0; i < habits.length; i++) {
+    const clientId = habits[i].id;
+    const inserted = data && data[i];
+    const dbId = inserted?.id || payloads[i].id;
+    if (dbId) mapping[clientId] = dbId;
+  }
+
+  return mapping;
 }
 
 // Save daily habit completions
@@ -488,22 +511,32 @@ export async function saveDailyHabits(userId: string, dailyHabits: Record<string
 
   if (rows.length === 0) return;
 
-  const { error } = await supabase.from("daily_habit_completions").insert(rows);
-  if (error) console.error("Error saving daily habit completions:", error);
+    console.log("saveDailyHabits: inserting rows", rows);
+    const { error } = await supabase.from("daily_habit_completions").insert(rows);
+    if (error) {
+      console.error("Error saving daily habit completions:", error, { rows });
+      // log common error subfields for easier debugging
+      try {
+        console.error("saveDailyHabits:error.message", (error as any).message);
+        console.error("saveDailyHabits:error.details", (error as any).details);
+      } catch (e) {}
+    }
 }
 
 // Save daily prayers for a specific date
 export async function saveDailyPrayers(userId: string, date: string, prayers: DailyPrayers) {
-  // Convert date from "Thu Feb 20 2026" format to "2026-02-20" format for database
+  // Convert date (either YYYY-MM-DD or new Date().toDateString()) to YYYY-MM-DD
   let dbDate: string;
-  
-  // Check if date is already in YYYY-MM-DD format
+  const pad = (n: number) => n.toString().padStart(2, "0");
   if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     dbDate = date;
   } else {
-    // Convert from new Date().toDateString() format
+    // Parse date string into a Date and use local year/month/day to avoid UTC timezone shift
     const dateObj = new Date(date);
-    dbDate = dateObj.toISOString().split("T")[0]; // Get YYYY-MM-DD part
+    const year = dateObj.getFullYear();
+    const month = pad(dateObj.getMonth() + 1);
+    const day = pad(dateObj.getDate());
+    dbDate = `${year}-${month}-${day}`;
   }
   
   console.log("saveDailyPrayers: Saving for date key:", date, "-> DB date:", dbDate);
@@ -686,11 +719,13 @@ export async function saveSleepEntries(userId: string, entries: SleepEntry[]) {
 export async function saveAllUserData(userId: string, data: UserData) {
   // Ensure userSettings is not null
   const settings = data.userSettings || DEFAULT_USER_SETTINGS;
-  
+  // Save habits first so daily completions (which reference habit ids) won't violate FK constraints.
+  const habitIdMap = await saveHabits(userId, data.habits);
+  console.log("saveAllUserData: habitIdMap:", habitIdMap);
+
   await Promise.all([
     saveUserSettings(userId, settings),
     saveTasks(userId, data.tasks),
-    saveHabits(userId, data.habits),
     saveTasbihEntries(userId, data.tasbihEntries),
     saveQuranLogs(userId, data.quranLogs),
     saveExams(userId, data.exams),
@@ -698,9 +733,28 @@ export async function saveAllUserData(userId: string, data: UserData) {
     saveExercises(userId, data.exercises),
     saveWorkoutLogs(userId, data.workoutLogs),
     saveSleepEntries(userId, data.sleepEntries),
-    // Save daily habit completions
-    saveDailyHabits(userId, (data as any).dailyHabits || {}),
   ]);
+
+  // Translate dailyHabits keys from client IDs to DB UUIDs using mapping returned by saveHabits
+  const transformedDailyHabits: Record<string, import("./types").DailyHabits> = {};
+  const isUuid = (s: string) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(s);
+  const originalDaily = (data as any).dailyHabits || {};
+  Object.entries(originalDaily).forEach(([dateKey, day]) => {
+    const completions: Record<string, any> = {};
+    Object.entries((day as any).completions || {}).forEach(([clientHabitId, comp]) => {
+      const dbId = habitIdMap[clientHabitId] || (isUuid(clientHabitId) ? clientHabitId : undefined);
+      if (dbId) {
+        completions[dbId] = comp;
+      } else {
+        console.warn("saveAllUserData: skipping completion for unknown habit id", clientHabitId);
+      }
+    });
+    transformedDailyHabits[dateKey] = { date: (day as any).date, completions };
+  });
+  console.log("saveAllUserData: transformedDailyHabits:", transformedDailyHabits);
+
+  // Save daily habit completions after habits are persisted
+  await saveDailyHabits(userId, transformedDailyHabits);
 
   // Save daily prayers one by one (they're a record)
   for (const [date, prayers] of Object.entries(data.dailyPrayers)) {

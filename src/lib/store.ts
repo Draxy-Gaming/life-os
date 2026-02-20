@@ -177,18 +177,37 @@ export const useAppStore = create<AppState>()((set, get) => ({
         console.log("store.loadData: Found existing prayers for today:", today, data.dailyPrayers[today]);
       }
 
-      // Ensure dailyHabits structure
+      // Ensure dailyHabits structure and normalize keys (accept YYYY-MM-DD or toDateString keys)
       const todayKey = new Date().toDateString();
       const processedDailyHabits = data.dailyHabits || {};
-      if (!processedDailyHabits[todayKey]) {
-        processedDailyHabits[todayKey] = { date: new Date().toISOString().split("T")[0], completions: {} };
+
+      // Normalize any incoming dailyHabits to use `toDateString()` as the key
+      const normalizedDailyHabits: Record<string, DailyHabits> = {};
+      Object.entries(processedDailyHabits).forEach(([key, day]) => {
+        try {
+          const dateSource = (day && (day as any).date) || key;
+          const dateObj = new Date(dateSource as string);
+          const dateKey = dateObj.toDateString();
+          const dbDate = dateObj.toISOString().split("T")[0];
+          normalizedDailyHabits[dateKey] = { date: dbDate, completions: (day && (day as any).completions) || {} };
+        } catch (e) {
+          // Fallback: keep original key if parsing fails
+          normalizedDailyHabits[key] = (day as DailyHabits) || { date: new Date().toISOString().split("T")[0], completions: {} };
+        }
+      });
+
+      if (!normalizedDailyHabits[todayKey]) {
+        normalizedDailyHabits[todayKey] = { date: new Date().toISOString().split("T")[0], completions: {} };
       }
 
       // Map habits and set completedToday based on dailyHabits for today
       const habitsWithCompletion = data.habits.map((h) => {
-        const wasCompleted = !!(processedDailyHabits[todayKey] && processedDailyHabits[todayKey].completions[h.id]);
+        const wasCompleted = !!(normalizedDailyHabits[todayKey] && normalizedDailyHabits[todayKey].completions[h.id]);
         return { ...h, completedToday: wasCompleted, lastCompletedAt: wasCompleted ? todayKey : h.lastCompletedAt };
       });
+
+      console.log("store.loadData: normalizedDailyHabits keys:", Object.keys(normalizedDailyHabits));
+      console.log("store.loadData: habitsWithCompletion:", habitsWithCompletion.map((h) => ({ id: h.id, completedToday: h.completedToday, lastCompletedAt: h.lastCompletedAt })));
 
       set({
         userId,
@@ -197,7 +216,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
         habits: habitsWithCompletion,
         sleepEntries: data.sleepEntries,
         dailyPrayers: data.dailyPrayers,
-        dailyHabits: processedDailyHabits,
+        dailyHabits: normalizedDailyHabits,
         tasbihEntries: data.tasbihEntries,
         quranLogs: data.quranLogs,
         exams: data.exams,
@@ -330,7 +349,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
         };
       });
 
-      // Update dailyHabits record
+      // Update dailyHabits record (ensure key uses toDateString())
       const existingDay = state.dailyHabits[todayKey] || { date: dbDate, completions: {} };
       const already = !!existingDay.completions[id];
       const completions = { ...existingDay.completions };
@@ -350,8 +369,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
   toggleHabitCompletion: (habitId, date) => {
     // Convenience wrapper to toggle completion for a given habit and date
-    const todayKey = date || new Date().toDateString();
-    const dbDate = new Date(todayKey).toISOString().split("T")[0];
+    const dateObj = date ? new Date(date) : new Date();
+    const todayKey = dateObj.toDateString();
+    const dbDate = dateObj.toISOString().split("T")[0];
     set((state) => {
       const existingDay = state.dailyHabits[todayKey] || { date: dbDate, completions: {} };
       const completions = { ...existingDay.completions };
