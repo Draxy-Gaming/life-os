@@ -39,6 +39,7 @@ export default function ExercisePage() {
     activeWorkoutSession,
     startWorkoutSession,
     updateWorkoutSessionEntry,
+    setWorkoutSessionName,
     finishWorkoutSession,
     discardWorkoutSession,
     hydrateWorkoutSessionFromStorage,
@@ -180,13 +181,7 @@ export default function ExercisePage() {
             <div className="flex gap-2">
               <Input
                 value={workoutName}
-                onChange={(e) => useAppStore.setState((state) => ({
-                  activeWorkoutSession: {
-                    ...state.activeWorkoutSession,
-                    workoutName: e.target.value,
-                    lastUpdatedAt: getNowEpochMs(),
-                  },
-                }))}
+                onChange={(e) => setWorkoutSessionName(e.target.value)}
                 placeholder="Workout name..."
                 className="w-40 h-8 text-sm"
               />

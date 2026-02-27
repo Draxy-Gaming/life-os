@@ -105,6 +105,7 @@ interface AppState {
   };
   startWorkoutSession: (name: string) => void;
   updateWorkoutSessionEntry: (updater: (entries: WorkoutLogEntry[]) => WorkoutLogEntry[]) => void;
+  setWorkoutSessionName: (name: string) => void;
   finishWorkoutSession: () => void;
   discardWorkoutSession: () => void;
   hydrateWorkoutSessionFromStorage: () => void;
@@ -550,6 +551,15 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       activeWorkoutSession: {
         ...state.activeWorkoutSession,
         entries: updater(state.activeWorkoutSession.entries),
+        lastUpdatedAt: Date.now(),
+      },
+    }));
+  },
+  setWorkoutSessionName: (name) => {
+    set((state) => ({
+      activeWorkoutSession: {
+        ...state.activeWorkoutSession,
+        workoutName: name,
         lastUpdatedAt: Date.now(),
       },
     }));

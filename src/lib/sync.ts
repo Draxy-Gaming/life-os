@@ -1,6 +1,6 @@
 "use client";
 
-import { supabase, Database } from "./supabase";
+import { supabase, Database, isSupabaseConfigured } from "./supabase";
 import type {
   UserSettings,
   Task,
@@ -96,6 +96,25 @@ const DEFAULT_EXAM: Exam = {
 // Load all user data from Supabase
 export async function loadUserData(userId: string): Promise<UserData> {
   console.log("loadUserData: Starting for userId", userId);
+
+  if (!isSupabaseConfigured) {
+    console.warn("loadUserData: Supabase not configured, returning local defaults");
+    return {
+      userSettings: DEFAULT_USER_SETTINGS,
+      tasks: [],
+      habits: DEFAULT_HABITS,
+      sleepEntries: [],
+      dailyPrayers: {},
+      dailyHabits: {},
+      tasbihEntries: DEFAULT_TASBIH,
+      quranLogs: [],
+      exams: [DEFAULT_EXAM],
+      studySessions: [],
+      exercises: DEFAULT_EXERCISES,
+      workoutLogs: [],
+      workoutSchedule: [],
+    };
+  }
   
   // First verify we can access the session
   const { data: sessionData } = await supabase.auth.getSession();
@@ -717,6 +736,11 @@ export async function saveSleepEntries(userId: string, entries: SleepEntry[]) {
 
 // Save all user data to Supabase
 export async function saveAllUserData(userId: string, data: UserData) {
+  if (!isSupabaseConfigured) {
+    console.warn("saveAllUserData: Supabase not configured, skipping remote sync");
+    return;
+  }
+
   // Ensure userSettings is not null
   const settings = data.userSettings || DEFAULT_USER_SETTINGS;
   // Save habits first so daily completions (which reference habit ids) won't violate FK constraints.
