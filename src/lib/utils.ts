@@ -58,3 +58,7 @@ export function getTimeOfDay(): "dawn" | "morning" | "noon" | "afternoon" | "sun
   if (hour < 21) return "twilight";
   return "night";
 }
+
+export function getNowEpochMs(): number {
+  return Date.now();
+}

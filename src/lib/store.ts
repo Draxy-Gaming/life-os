@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import type {
   UserSettings,
   Task,
@@ -16,6 +17,7 @@ import type {
   TasbihEntry,
   QuranLog,
   DailyScore,
+  WorkoutLogEntry,
 } from "./types";
 import { loadUserData, saveAllUserData } from "./sync";
 
@@ -93,6 +95,21 @@ interface AppState {
   workoutSchedule: WorkoutSchedule[];
   setWorkoutSchedule: (schedule: WorkoutSchedule[]) => void;
 
+  // Active Workout Session (persisted locally)
+  activeWorkoutSession: {
+    isActive: boolean;
+    startedAtEpochMs: number | null;
+    workoutName: string;
+    entries: WorkoutLogEntry[];
+    lastUpdatedAt: number | null;
+  };
+  startWorkoutSession: (name: string) => void;
+  updateWorkoutSessionEntry: (updater: (entries: WorkoutLogEntry[]) => WorkoutLogEntry[]) => void;
+  setWorkoutSessionName: (name: string) => void;
+  finishWorkoutSession: () => void;
+  discardWorkoutSession: () => void;
+  hydrateWorkoutSessionFromStorage: () => void;
+
   // Daily Score
   getDailyScore: () => DailyScore;
 }
@@ -134,7 +151,15 @@ const DEFAULT_USER_SETTINGS: UserSettings = {
   calculationMethod: 0,
 };
 
-export const useAppStore = create<AppState>()((set, get) => ({
+const DEFAULT_ACTIVE_WORKOUT_SESSION = {
+  isActive: false,
+  startedAtEpochMs: null,
+  workoutName: "Morning Workout",
+  entries: [] as WorkoutLogEntry[],
+  lastUpdatedAt: null,
+};
+
+export const useAppStore = create<AppState>()(persist((set, get) => ({
   // Auth / User
   userId: null,
   isLoading: false,
@@ -508,6 +533,64 @@ export const useAppStore = create<AppState>()((set, get) => ({
   workoutSchedule: [],
   setWorkoutSchedule: (schedule) => set({ workoutSchedule: schedule }),
 
+  // Active Workout Session
+  activeWorkoutSession: DEFAULT_ACTIVE_WORKOUT_SESSION,
+  startWorkoutSession: (name) => {
+    set({
+      activeWorkoutSession: {
+        isActive: true,
+        startedAtEpochMs: Date.now(),
+        workoutName: name.trim() || "Workout",
+        entries: [],
+        lastUpdatedAt: Date.now(),
+      },
+    });
+  },
+  updateWorkoutSessionEntry: (updater) => {
+    set((state) => ({
+      activeWorkoutSession: {
+        ...state.activeWorkoutSession,
+        entries: updater(state.activeWorkoutSession.entries),
+        lastUpdatedAt: Date.now(),
+      },
+    }));
+  },
+  setWorkoutSessionName: (name) => {
+    set((state) => ({
+      activeWorkoutSession: {
+        ...state.activeWorkoutSession,
+        workoutName: name,
+        lastUpdatedAt: Date.now(),
+      },
+    }));
+  },
+  finishWorkoutSession: () => {
+    set({ activeWorkoutSession: { ...DEFAULT_ACTIVE_WORKOUT_SESSION } });
+  },
+  discardWorkoutSession: () => {
+    set({ activeWorkoutSession: { ...DEFAULT_ACTIVE_WORKOUT_SESSION } });
+  },
+  hydrateWorkoutSessionFromStorage: () => {
+    if (typeof window === "undefined") return;
+    const rawState = localStorage.getItem("lifeos-active-workout-session");
+    if (!rawState) return;
+    try {
+      const parsed = JSON.parse(rawState) as {
+        state?: { activeWorkoutSession?: AppState["activeWorkoutSession"] };
+      };
+      if (parsed.state?.activeWorkoutSession) {
+        set({
+          activeWorkoutSession: {
+            ...DEFAULT_ACTIVE_WORKOUT_SESSION,
+            ...parsed.state.activeWorkoutSession,
+          },
+        });
+      }
+    } catch (error) {
+      console.warn("Unable to hydrate active workout session", error);
+    }
+  },
+
   // Daily Score
   getDailyScore: () => {
     const state = get();
@@ -552,4 +635,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
       total,
     };
   },
+}), {
+  name: "lifeos-active-workout-session",
+  storage: createJSONStorage(() => localStorage),
+  partialize: (state) => ({ activeWorkoutSession: state.activeWorkoutSession }),
 }));

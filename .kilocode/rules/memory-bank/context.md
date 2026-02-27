@@ -36,6 +36,8 @@ LifeOS is a complete full-stack Personal Operating System for students and produ
 - [x] Auth login/signup page with email confirmation flow
 - [x] Sign out functionality in settings page
 - [x] Auth guards on dashboard and onboarding routes
+- [x] Added persisted `activeWorkoutSession` Zustand slice with start/update/finish/discard/hydrate actions and refactored exercise page to resume active sessions
+- [x] Added offline-safe Supabase client fallback to prevent runtime crash when env vars are missing and allow Exercise page rendering for local session persistence
 
 ## Current Structure
 
@@ -84,3 +86,5 @@ LifeOS is a complete full-stack Personal Operating System for students and produ
 | 2026-02-19 | Added Auth login/signup page, auth guards, and sign out functionality in settings |
 | 2026-02-19 | Fixed onboarding data not persisting after refresh - setUserSettings now syncs to database, loadData determines isOnboarded from userSettings.name/mainGoal |
 | 2026-02-19 | Confirmed fix working - data now persists after refresh (logs show isOnboarded=true with correct name/mainGoal) |
+| 2026-02-19 | Added persisted workout session state for exercise page with resume behavior and finish/discard flow backed by Zustand local persistence |
+| 2026-02-19 | Prevented runtime crash when Supabase env is missing by adding offline-safe fallback and gating sync calls; exercise page now loads in local/offline mode |
