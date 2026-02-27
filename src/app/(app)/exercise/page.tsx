@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Dumbbell, Plus, Trash2, Play, Square, ChevronDown, ChevronUp,
@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAppStore } from "@/lib/store";
-import type { Exercise, WorkoutLogEntry, WorkoutSet, ExerciseType } from "@/lib/types";
+import { getNowEpochMs } from "@/lib/utils";
+import type { Exercise, WorkoutSet, ExerciseType } from "@/lib/types";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
@@ -27,12 +28,24 @@ const EXERCISE_TYPE_COLORS: Record<ExerciseType, string> = {
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function ExercisePage() {
-  const { exercises, addExercise, deleteExercise, workoutLogs, addWorkoutLog, workoutSchedule, setWorkoutSchedule } = useAppStore();
+  const {
+    exercises,
+    addExercise,
+    deleteExercise,
+    workoutLogs,
+    addWorkoutLog,
+    workoutSchedule,
+    setWorkoutSchedule,
+    activeWorkoutSession,
+    startWorkoutSession,
+    updateWorkoutSessionEntry,
+    finishWorkoutSession,
+    discardWorkoutSession,
+    hydrateWorkoutSessionFromStorage,
+  } = useAppStore();
 
-  const [activeWorkout, setActiveWorkout] = useState<WorkoutLogEntry[]>([]);
-  const [workoutName, setWorkoutName] = useState("Morning Workout");
-  const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
-  const [isWorkoutActive, setIsWorkoutActive] = useState(false);
+  const { isActive: isWorkoutActive, entries: activeWorkout, workoutName, startedAtEpochMs } = activeWorkoutSession;
+  const workoutStartTime = startedAtEpochMs ? new Date(startedAtEpochMs) : null;
 
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [newExName, setNewExName] = useState("");
@@ -42,25 +55,26 @@ export default function ExercisePage() {
 
   const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
 
+  useEffect(() => {
+    hydrateWorkoutSessionFromStorage();
+  }, [hydrateWorkoutSessionFromStorage]);
+
   const handleStartWorkout = () => {
-    setIsWorkoutActive(true);
-    setWorkoutStartTime(new Date());
-    setActiveWorkout([]);
+    startWorkoutSession(workoutName);
   };
 
   const handleFinishWorkout = () => {
     if (!workoutStartTime) return;
-    const duration = Math.round((Date.now() - workoutStartTime.getTime()) / 60000);
+    const finishedAtEpochMs = getNowEpochMs();
+    const duration = Math.round((finishedAtEpochMs - workoutStartTime.getTime()) / 60000);
     addWorkoutLog({
-      id: Date.now().toString(),
+      id: finishedAtEpochMs.toString(),
       date: new Date().toISOString().split("T")[0],
       name: workoutName,
       entries: activeWorkout,
       durationMinutes: duration,
     });
-    setIsWorkoutActive(false);
-    setActiveWorkout([]);
-    setWorkoutStartTime(null);
+    finishWorkoutSession();
   };
 
   const addExerciseToWorkout = (exercise: Exercise) => {
@@ -71,14 +85,14 @@ export default function ExercisePage() {
       unit: "kg" as const,
       completed: false,
     }));
-    setActiveWorkout((prev) => [
+    updateWorkoutSessionEntry((prev) => [
       ...prev,
       { exerciseId: exercise.id, exerciseName: exercise.name, sets },
     ]);
   };
 
   const updateSet = (entryIndex: number, setIndex: number, updates: Partial<WorkoutSet>) => {
-    setActiveWorkout((prev) =>
+    updateWorkoutSessionEntry((prev) =>
       prev.map((entry, ei) =>
         ei === entryIndex
           ? {
@@ -95,7 +109,7 @@ export default function ExercisePage() {
   const handleAddExercise = () => {
     if (!newExName.trim()) return;
     addExercise({
-      id: Date.now().toString(),
+      id: getNowEpochMs().toString(),
       name: newExName,
       type: newExType,
       defaultSets: newExSets,
@@ -160,13 +174,19 @@ export default function ExercisePage() {
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle className="flex items-center gap-2">
             <Flame className={`w-5 h-5 ${isWorkoutActive ? "text-orange-500 animate-pulse" : "text-muted-foreground"}`} />
-            {isWorkoutActive ? "Active Workout" : "Start Workout"}
+            {isWorkoutActive ? "Resume workout" : "Start Workout"}
           </CardTitle>
           {!isWorkoutActive ? (
             <div className="flex gap-2">
               <Input
                 value={workoutName}
-                onChange={(e) => setWorkoutName(e.target.value)}
+                onChange={(e) => useAppStore.setState((state) => ({
+                  activeWorkoutSession: {
+                    ...state.activeWorkoutSession,
+                    workoutName: e.target.value,
+                    lastUpdatedAt: getNowEpochMs(),
+                  },
+                }))}
                 placeholder="Workout name..."
                 className="w-40 h-8 text-sm"
               />
@@ -176,10 +196,15 @@ export default function ExercisePage() {
               </Button>
             </div>
           ) : (
+            <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={discardWorkoutSession}>
+              Discard
+            </Button>
             <Button size="sm" variant="destructive" onClick={handleFinishWorkout}>
               <Square className="w-4 h-4 mr-1" />
               Finish
             </Button>
+          </div>
           )}
         </CardHeader>
 
