@@ -36,6 +36,7 @@ LifeOS is a complete full-stack Personal Operating System for students and produ
 - [x] Auth login/signup page with email confirmation flow
 - [x] Sign out functionality in settings page
 - [x] Auth guards on dashboard and onboarding routes
+- [x] Exercise active workout timer now derives elapsed time from persisted `startedAtEpochMs`, with 1-second live ticker, reload-safe duration math, and finish-button guardrails
 
 ## Current Structure
 
@@ -84,3 +85,4 @@ LifeOS is a complete full-stack Personal Operating System for students and produ
 | 2026-02-19 | Added Auth login/signup page, auth guards, and sign out functionality in settings |
 | 2026-02-19 | Fixed onboarding data not persisting after refresh - setUserSettings now syncs to database, loadData determines isOnboarded from userSettings.name/mainGoal |
 | 2026-02-19 | Confirmed fix working - data now persists after refresh (logs show isOnboarded=true with correct name/mainGoal) |
+| 2026-02-27 | Updated exercise workout session timing to use persisted epoch start + 1s interval tick, added live HH:MM timer in header, converted finish duration from elapsed seconds, and disabled Finish for invalid sessions |
