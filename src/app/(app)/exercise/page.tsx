@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Dumbbell, Plus, Trash2, Play, Square, ChevronDown, ChevronUp,
@@ -25,14 +25,36 @@ const EXERCISE_TYPE_COLORS: Record<ExerciseType, string> = {
 };
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WORKOUT_START_EPOCH_STORAGE_KEY = "lifeos.activeWorkout.startedAtEpochMs";
+
+const isValidStartTimestamp = (value: number | null, nowEpochMs: number) =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 && value <= nowEpochMs;
+
+const getPersistedWorkoutStartTimestamp = () => {
+  if (typeof window === "undefined") return null;
+
+  const persistedValue = localStorage.getItem(WORKOUT_START_EPOCH_STORAGE_KEY);
+  if (!persistedValue) return null;
+
+  const parsedStartedAt = Number(persistedValue);
+  return isValidStartTimestamp(parsedStartedAt, Date.now()) ? parsedStartedAt : null;
+};
+
+const formatHoursAndMinutes = (seconds: number) => {
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+};
 
 export default function ExercisePage() {
   const { exercises, addExercise, deleteExercise, workoutLogs, addWorkoutLog, workoutSchedule, setWorkoutSchedule } = useAppStore();
 
   const [activeWorkout, setActiveWorkout] = useState<WorkoutLogEntry[]>([]);
   const [workoutName, setWorkoutName] = useState("Morning Workout");
-  const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
-  const [isWorkoutActive, setIsWorkoutActive] = useState(false);
+  const [workoutStartedAtEpochMs, setWorkoutStartedAtEpochMs] = useState<number | null>(() => getPersistedWorkoutStartTimestamp());
+  const [elapsedTickMs, setElapsedTickMs] = useState<number>(() => Date.now());
+  const [isWorkoutActive, setIsWorkoutActive] = useState<boolean>(() => getPersistedWorkoutStartTimestamp() !== null);
 
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [newExName, setNewExName] = useState("");
@@ -42,15 +64,46 @@ export default function ExercisePage() {
 
   const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (workoutStartedAtEpochMs === null) {
+      localStorage.removeItem(WORKOUT_START_EPOCH_STORAGE_KEY);
+      return;
+    }
+
+    localStorage.setItem(WORKOUT_START_EPOCH_STORAGE_KEY, String(workoutStartedAtEpochMs));
+  }, [workoutStartedAtEpochMs]);
+
+  useEffect(() => {
+    if (!isWorkoutActive) return;
+
+    const intervalId = window.setInterval(() => {
+      setElapsedTickMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isWorkoutActive]);
+
+  const hasValidWorkoutStart = isValidStartTimestamp(workoutStartedAtEpochMs, elapsedTickMs);
+
+  const elapsedSeconds = useMemo(() => {
+    if (!hasValidWorkoutStart || workoutStartedAtEpochMs === null) return 0;
+    return Math.max(0, Math.floor((elapsedTickMs - workoutStartedAtEpochMs) / 1000));
+  }, [elapsedTickMs, hasValidWorkoutStart, workoutStartedAtEpochMs]);
+
+  const elapsedTimerLabel = formatHoursAndMinutes(elapsedSeconds);
+
   const handleStartWorkout = () => {
+    const startedAtEpochMs = Date.now();
     setIsWorkoutActive(true);
-    setWorkoutStartTime(new Date());
+    setWorkoutStartedAtEpochMs(startedAtEpochMs);
+    setElapsedTickMs(startedAtEpochMs);
     setActiveWorkout([]);
   };
 
   const handleFinishWorkout = () => {
-    if (!workoutStartTime) return;
-    const duration = Math.round((Date.now() - workoutStartTime.getTime()) / 60000);
+    if (!isWorkoutActive || !hasValidWorkoutStart) return;
+
+    const duration = Math.max(1, Math.round(elapsedSeconds / 60));
     addWorkoutLog({
       id: Date.now().toString(),
       date: new Date().toISOString().split("T")[0],
@@ -60,7 +113,7 @@ export default function ExercisePage() {
     });
     setIsWorkoutActive(false);
     setActiveWorkout([]);
-    setWorkoutStartTime(null);
+    setWorkoutStartedAtEpochMs(null);
   };
 
   const addExerciseToWorkout = (exercise: Exercise) => {
@@ -161,6 +214,11 @@ export default function ExercisePage() {
           <CardTitle className="flex items-center gap-2">
             <Flame className={`w-5 h-5 ${isWorkoutActive ? "text-orange-500 animate-pulse" : "text-muted-foreground"}`} />
             {isWorkoutActive ? "Active Workout" : "Start Workout"}
+            {isWorkoutActive && (
+              <Badge variant="secondary" className="font-mono text-xs">
+                {elapsedTimerLabel}
+              </Badge>
+            )}
           </CardTitle>
           {!isWorkoutActive ? (
             <div className="flex gap-2">
@@ -176,7 +234,7 @@ export default function ExercisePage() {
               </Button>
             </div>
           ) : (
-            <Button size="sm" variant="destructive" onClick={handleFinishWorkout}>
+            <Button size="sm" variant="destructive" onClick={handleFinishWorkout} disabled={!isWorkoutActive || !hasValidWorkoutStart}>
               <Square className="w-4 h-4 mr-1" />
               Finish
             </Button>
@@ -189,8 +247,8 @@ export default function ExercisePage() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Clock className="w-4 h-4" />
               <span>{workoutName}</span>
-              {workoutStartTime && (
-                <span>• Started {workoutStartTime.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</span>
+              {hasValidWorkoutStart && workoutStartedAtEpochMs && (
+                <span>• Started {new Date(workoutStartedAtEpochMs).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</span>
               )}
             </div>
 
