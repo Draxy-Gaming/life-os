@@ -19,6 +19,10 @@ LifeOS is a complete full-stack Personal Operating System for students and produ
 - [x] Habits module with Kanban task manager (Deen/Dunya/School tags), streak tracking, sleep analytics
 - [x] Academics module with syllabus iframe embed (comebacx.netlify.app), floating Pomodoro timer, exam manager
 - [x] Exercise tracker with workout logger, exercise library, weekly bar chart analytics
+- [x] Refactored exercise page into modular components (WorkoutHeader, WorkoutTimer, ExercisePicker, WorkoutEntryCard, SetRow, WorkoutSummary) with exercise/session progress indicators
+- [x] Fixed workout entry expand/collapse to honor expandedExercise state
+- [x] Added optional rest timer that starts on set completion with countdown chip and vibration cue hook
+- [x] Added quick actions to duplicate the last workout name and exercise order from workout history
 - [x] Settings page with profile, location, sleep targets, theme toggle
 - [x] Zustand store with full state management and getDailyScore() computed function
 - [x] Responsive sidebar + mobile bottom navigation (collapses at 768px)
@@ -84,3 +88,5 @@ LifeOS is a complete full-stack Personal Operating System for students and produ
 | 2026-02-19 | Added Auth login/signup page, auth guards, and sign out functionality in settings |
 | 2026-02-19 | Fixed onboarding data not persisting after refresh - setUserSettings now syncs to database, loadData determines isOnboarded from userSettings.name/mainGoal |
 | 2026-02-19 | Confirmed fix working - data now persists after refresh (logs show isOnboarded=true with correct name/mainGoal) |
+
+| 2026-02-27 | Refactored exercise tracker into reusable components, added expand/collapse fix, rest timer, progress tracking, and quick actions from last workout |
